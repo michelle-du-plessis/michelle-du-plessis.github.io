@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DLI Working Group — Reflection Map</title>
+  <style>
+    html, body, #3d-graph {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #000011;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    #title {
+      position: absolute;
+      top: 18px;
+      left: 22px;
+      color: rgba(255,255,255,0.45);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      pointer-events: none;
+      z-index: 10;
+      line-height: 1.7;
+    }
+    #legend {
+      position: absolute;
+      bottom: 24px;
+      left: 22px;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .leg {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.42);
+      letter-spacing: 0.04em;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<div id="title">
+  DLI Working Group &mdash; Spring 2026<br>
+</div>
+
+
+<div id="legend">
+  <div class="leg"><div class="dot" style="background:#a78bfa;"></div>Speaker</div>
+  <div class="leg"><div class="dot" style="background:#60a5fa;"></div>Concept</div>
+  <div class="leg"><div class="dot" style="background:#fbbf24;"></div>Reflective Question</div>
+</div>
+
+<div id="3d-graph"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
+
+<script>
+// ── Colors — speakers, concepts, and reflective questions ──
+const COLORS = {
+  speaker:  '#a78bfa',   // unified violet for all speakers
+  concept:  '#60a5fa',   // blue
+  question: '#fbbf24',   // amber — bigger nodes + text
+};
+
+// ── Canvas text sprite ────────────────────────────────────────────
+// textScale: multiplier for font + sprite size
+// yOffset:   how far above the sphere centre the label sits
+function makeLabel(text, color, textScale, yOffset) {
+  textScale = textScale || 1;
+  yOffset   = yOffset   || 10;
+
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d');
+  const fSize  = Math.round(26 * textScale);   // base 26px, scaled up for questions
+  const font   = `500 ${fSize}px Arial, sans-serif`;
+  ctx.font = font;
+  const tw   = ctx.measureText(text).width;
+  const padX = 12, padY = 8;
+  canvas.width  = tw + padX * 2;
+  canvas.height = fSize + padY * 2;
+
+  // Rounded background
+  ctx.fillStyle = 'rgba(0,0,14,0.58)';
+  const r = 6, w = canvas.width, h = canvas.height;
+  ctx.beginPath();
+  ctx.moveTo(r,0); ctx.lineTo(w-r,0); ctx.quadraticCurveTo(w,0,w,r);
+  ctx.lineTo(w,h-r); ctx.quadraticCurveTo(w,h,w-r,h);
+  ctx.lineTo(r,h);  ctx.quadraticCurveTo(0,h,0,h-r);
+  ctx.lineTo(0,r);  ctx.quadraticCurveTo(0,0,r,0);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2);
+
+  const texture  = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false });
+  const sprite   = new THREE.Sprite(material);
+
+  // Height in scene units; width proportional to canvas aspect
+  const baseH = 7 * textScale;
+  sprite.scale.set(baseH * (w / h), baseH, 1);
+  sprite.position.set(0, yOffset, 0);
+  return sprite;
+}
+
+// ── Graph data ────────────────────────────────────────────────────
+const graphData = {
+  nodes: [
+
+    // ── Speakers (all same violet) ────────────────────────────────
+    { id: 'Kristjan',   label: 'Kristjan',   group: 'speaker', val: 1   },  // Jan 20
+    { id: 'Jen',        label: 'Jen',         group: 'speaker', val: 1   },  // Feb 3
+    { id: 'Pegah',      label: 'Pegah',       group: 'speaker', val: 1   },  // Feb 3
+    { id: 'Michael',    label: 'Michael S.',  group: 'speaker', val: 1   },  // Feb 10
+    { id: 'Michelle',   label: 'Michelle',    group: 'speaker', val: 1   },  // Feb 24
+    { id: 'Jacqueline', label: 'Jacqueline',  group: 'speaker', val: 1   },  // Feb 24
+    { id: 'Alex',       label: 'Alex',        group: 'speaker', val: 1   },  // Mar 3
+    { id: 'Leo',        label: 'Leo',         group: 'speaker', val: 1   },  // Mar 3
+    { id: 'Emma',       label: 'Emma',        group: 'speaker', val: 1   },  // Mar 10
+    { id: 'Camille',    label: 'Camille',     group: 'speaker', val: 1   },  // Mar 10
+    { id: 'JaeJune',    label: 'Jae June',    group: 'speaker', val: 1   },  // Mar 17
+    { id: 'Anne',       label: 'Anne',        group: 'speaker', val: 1   },  // Mar 24
+    { id: 'Rebecca',    label: 'Rebecca',     group: 'speaker', val: 1   },  // Apr 7
+    { id: 'Nissenbaum', label: 'Nissenbaum',  group: 'speaker', val: 2.2 },  // Apr 14
+    { id: 'Michele',    label: 'Michele F.',  group: 'speaker', val: 1   },  // Apr 21
+    { id: 'Yotam',      label: 'Yotam',       group: 'speaker', val: 1   },  // Apr 28
+    { id: 'Thalia',     label: 'Thalia',      group: 'speaker', val: 1   },  // Apr 28
+
+    // ── Concepts ─────────────────────────────────────────────────
+    { id: 'CI',   label: 'Contextual Integrity',  group: 'concept', val: 1.4 },
+    { id: 'PW',   label: 'Privacy Washing',        group: 'concept', val: 1   },
+    { id: 'SI',   label: 'Surveillance Infra.',    group: 'concept', val: 1   },
+    { id: 'CAP',  label: 'Consent as Procedure',   group: 'concept', val: 1   },
+    { id: 'IFN',  label: 'Info Flow Norms',        group: 'concept', val: 1.2 },
+    { id: 'PETs', label: 'PETs / Fed. Data',       group: 'concept', val: 1   },
+    { id: 'DP',   label: 'Differential Privacy',   group: 'concept', val: 1   },
+    { id: 'TC',   label: 'Trust',                  group: 'concept', val: 1   },
+    { id: 'PPA',  label: 'Privacy-Pres. Adtech',   group: 'concept', val: 1   },
+    { id: 'PAT',  label: 'Programmatic Ads',       group: 'concept', val: 1   },
+    { id: 'SSP',  label: 'Supply Side (SSPs)',      group: 'concept', val: 1   },
+    { id: 'DA',   label: 'Diffuse Accountability', group: 'concept', val: 1.2 },
+    { id: 'AL',   label: 'Agency Law',             group: 'concept', val: 1.1 },
+    { id: 'VL',   label: 'Vicarious Liability',    group: 'concept', val: 1   },
+    { id: 'PL',   label: 'Product Liability',      group: 'concept', val: 1   },
+    { id: 'RA',   label: 'Risk Allocation',        group: 'concept', val: 1   },
+    { id: 'CS',   label: 'Compelled Speech',       group: 'concept', val: 1   },
+    { id: 'GBL',  label: 'Gender Bias + Law',      group: 'concept', val: 1   },
+    { id: 'CDA',  label: 'Critical Discourse',     group: 'concept', val: 1   },
+    { id: 'CM',   label: 'Content Moderation',     group: 'concept', val: 1   },
+    { id: 'CIP',  label: 'Copyright & IP',         group: 'concept', val: 1   },
+    { id: 'EUA',  label: 'EU AI Act',              group: 'concept', val: 1   },
+    { id: 'AIL',  label: 'AI Literacy',            group: 'concept', val: 1   },
+    { id: 'WAR',  label: 'AI in Warfare',          group: 'concept', val: 1   },
+    { id: 'ADP',  label: 'Disclosure Policy',      group: 'concept', val: 1.1 },
+    { id: 'ACF',  label: 'Algo. Conformity',       group: 'concept', val: 1   },
+    { id: 'ASE',  label: 'Safety Evaluations',     group: 'concept', val: 1.1 },
+    { id: 'EB',   label: 'Ecological Benchmarks',  group: 'concept', val: 1   },
+    { id: 'MLL',  label: 'ML Limitations',         group: 'concept', val: 1.2 },
+    { id: 'AUL',  label: 'Autonomous Learning',    group: 'concept', val: 1   },
+    { id: 'AIH',  label: 'AI + Healthcare',        group: 'concept', val: 1   },
+    { id: 'PSA',  label: 'Pseudo-Automation',      group: 'concept', val: 1   },
+    { id: 'VID',  label: 'Values in Design',       group: 'concept', val: 1   },
+    { id: 'CBP',  label: 'Commons Production',     group: 'concept', val: 1   },
+    { id: 'OBF',  label: 'Obfuscation',            group: 'concept', val: 1   },
+    { id: 'AIW',  label: 'AI in Workplace',        group: 'concept', val: 1.2 },
+    { id: 'EMB',  label: 'Embodied AI / Robots',   group: 'concept', val: 1   },
+    { id: 'RLL',  label: 'Robot Labor Law',        group: 'concept', val: 1   },
+
+    // ── Reflective Questions — bigger nodes ───────────────────────
+    { id: 'Q1', label: 'Whose context counts?',       group: 'question', val: 2.5 },
+    { id: 'Q2', label: 'Who makes norms?',            group: 'question', val: 2.5 },
+    { id: 'Q3', label: 'When is trust justified?',    group: 'question', val: 2.4 },
+    { id: 'Q4', label: 'Where does liability attach?', group: 'question', val: 2.5 },
+  ],
+
+  links: [
+    // Kristjan (Jan 20)
+    { source: 'Kristjan',   target: 'CI'   },
+    { source: 'Kristjan',   target: 'PW'   },
+    { source: 'Kristjan',   target: 'SI'   },
+    { source: 'Kristjan',   target: 'CAP'  },
+    { source: 'Kristjan',   target: 'PAT'  },
+    { source: 'Kristjan',   target: 'SSP'  },
+    { source: 'Kristjan',   target: 'DA'   },
+    { source: 'Kristjan',   target: 'IFN'  },
+    { source: 'Kristjan',   target: 'Nissenbaum' },
+
+    // Jen (Feb 3)
+    { source: 'Jen',        target: 'ASE'  },
+    { source: 'Jen',        target: 'VID'  },
+
+    // Pegah (Feb 3)
+    { source: 'Pegah',      target: 'ASE'  },
+    { source: 'Pegah',      target: 'PSA'  },
+    { source: 'Pegah',      target: 'AIW'  },
+    { source: 'Pegah',      target: 'MLL'  },
+
+    // Michael S. (Feb 10)
+    { source: 'Michael',    target: 'AIH'  },
+    { source: 'Michael',    target: 'PETs' },
+
+    // Michelle (Feb 24)
+    { source: 'Michelle',   target: 'CM'   },
+    { source: 'Michelle',   target: 'AL'   },
+    { source: 'Michelle',   target: 'CI'   },
+
+
+    // Jacqueline (Feb 24)
+    { source: 'Jacqueline', target: 'MLL'  },
+    { source: 'Jacqueline', target: 'ASE'  },
+    { source: 'Jacqueline', target: 'AUL'  },
+
+    // Alex (Mar 3)
+    { source: 'Alex',       target: 'CIP'  },
+    { source: 'Alex',       target: 'Q2'   },
+
+    // Leo (Mar 3)
+    { source: 'Leo',        target: 'CIP'  },
+    { source: 'Leo',        target: 'EUA'  },
+
+    // Emma (Mar 10)
+    { source: 'Emma',       target: 'GBL'  },
+    { source: 'Emma',       target: 'CDA'  },
+    { source: 'Emma',       target: 'RA'   },
+
+    // Camille (Mar 10)
+    { source: 'Camille',    target: 'GBL'  },
+    { source: 'Camille',    target: 'CDA'  },
+
+    // Jae June (Mar 17)
+    { source: 'JaeJune',    target: 'PETs' },
+    { source: 'JaeJune',    target: 'DP'   },
+    { source: 'JaeJune',    target: 'IFN'  },
+    { source: 'JaeJune',    target: 'CI'   },
+    { source: 'JaeJune',    target: 'Nissenbaum' },
+
+    // Anne (Mar 24)
+    { source: 'Anne',       target: 'MLL'  },
+    { source: 'Anne',       target: 'AUL'  },
+    { source: 'Anne',       target: 'WAR'  },
+    { source: 'Anne',       target: 'CS'   },
+    { source: 'Anne',       target: 'ADP'  },
+
+    // Rebecca (Apr 7)
+    { source: 'Rebecca',    target: 'ADP'  },
+
+    // Nissenbaum (Apr 14)
+    { source: 'Nissenbaum',      target: 'CI'   },
+    { source: 'Nissenbaum',      target: 'VID'  },
+    { source: 'Nissenbaum',      target: 'CBP'  },
+    { source: 'Nissenbaum',      target: 'TC'   },
+    { source: 'Nissenbaum',      target: 'PPA'  },
+    { source: 'Nissenbaum',      target: 'IFN'  },
+    { source: 'Nissenbaum',      target: 'OBF'  },
+
+    // Michele F. (Apr 21)
+    { source: 'Michele',    target: 'AL'   },
+    { source: 'Michele',    target: 'VL'   },
+    { source: 'Michele',    target: 'PL'   },
+    { source: 'Michele',    target: 'RA'   },
+    { source: 'Michele',    target: 'EUA'  },
+    { source: 'Michele',    target: 'AIL'  },
+    { source: 'Michele',    target: 'AIW'  },
+    { source: 'Michele',    target: 'EMB'  },
+    { source: 'Michele',    target: 'RLL'  },
+    { source: 'Michele',    target: 'Q1'   },
+
+    // Yotam (Apr 28)
+    { source: 'Yotam',      target: 'ACF'  },
+    { source: 'Yotam',      target: 'ADP'  },
+    { source: 'Yotam',      target: 'Q4'   },
+
+    // Thalia (Apr 28)
+    { source: 'Thalia',     target: 'ASE'  },
+    { source: 'Thalia',     target: 'EB'   },
+    { source: 'Thalia',     target: 'AIH'  },
+    { source: 'Thalia',     target: 'AIL'  },
+
+    // Concept ↔ concept bridges
+    { source: 'CI',   target: 'IFN'  },
+    { source: 'CI',   target: 'CAP'  },
+    { source: 'CI',   target: 'PETs' },
+    { source: 'DP',   target: 'PETs' },
+    { source: 'PW',   target: 'SI'   },
+    { source: 'PAT',  target: 'SSP'  },
+    { source: 'PAT',  target: 'DA'   },
+    { source: 'SSP',  target: 'DA'   },
+    { source: 'PPA',  target: 'PAT'  },
+    { source: 'TC',   target: 'CI'   },
+    { source: 'OBF',  target: 'PPA'  },
+    { source: 'AL',   target: 'VL'   },
+    { source: 'AL',   target: 'AIW'  },
+    { source: 'AL',   target: 'RLL'  },
+    { source: 'VL',   target: 'RA'   },
+    { source: 'PL',   target: 'RA'   },
+    { source: 'EMB',  target: 'AL'   },
+    { source: 'RLL',  target: 'EUA'  },
+    { source: 'EUA',  target: 'AIL'  },
+    { source: 'EUA',  target: 'AIW'  },
+    { source: 'ASE',  target: 'EB'   },
+    { source: 'ASE',  target: 'MLL'  },
+    { source: 'AUL',  target: 'MLL'  },
+    { source: 'AIH',  target: 'ASE'  },
+    { source: 'PSA',  target: 'AIW'  },
+    { source: 'PSA',  target: 'SI'   },
+    { source: 'CS',   target: 'WAR'  },
+    { source: 'VID',  target: 'CBP'  },
+    { source: 'CDA',  target: 'GBL'  },
+    { source: 'CM',   target: 'DA'   },
+    { source: 'CIP',  target: 'Q2'   },
+    { source: 'GBL',  target: 'RA'   },
+
+    // Reflective questions → concepts
+    { source: 'Q1', target: 'CI'   },
+    { source: 'Q1', target: 'IFN'  },
+    { source: 'Q1', target: 'CAP'  },
+    { source: 'Q1', target: 'CDA'  },
+    { source: 'Q1', target: 'GBL'  },
+
+    { source: 'Q2', target: 'EUA'  },
+    { source: 'Q2', target: 'ADP'  },
+    { source: 'Q2', target: 'CIP'  },
+    { source: 'Q2', target: 'VID'  },
+    { source: 'Q2', target: 'CM'   },
+
+    { source: 'Q3', target: 'TC'   },
+    { source: 'Q3', target: 'ASE'  },
+    { source: 'Q3', target: 'ACF'  },
+    { source: 'Q3', target: 'EB'   },
+    { source: 'Q3', target: 'PW'   },
+
+    { source: 'Q4', target: 'VL'   },
+    { source: 'Q4', target: 'PL'   },
+    { source: 'Q4', target: 'AL'   },
+    { source: 'Q4', target: 'DA'   },
+    { source: 'Q4', target: 'RLL'  },
+
+  ]
+};
+
+// ── Render ────────────────────────────────────────────────────────
+const graph = ForceGraph3D()(document.getElementById('3d-graph'))
+  .graphData(graphData)
+  .backgroundColor('#000011')
+  .showNavInfo(false)
+
+  // Spheres
+  .nodeColor(node => COLORS[node.group] || '#ffffff')
+  .nodeRelSize(5)
+  .nodeVal(node => node.val || 1)
+  .nodeOpacity(0.92)
+
+  // Labels: bigger for questions, y-offset clears the sphere
+  .nodeThreeObject(node => {
+    const isQ     = node.group === 'question';
+    const scale   = isQ ? 1.5 : 1.05;
+    // offset scales with sphere radius so label never overlaps the dot
+    const radius  = 5 * Math.sqrt(node.val || 1);
+    const yOffset = radius + 7;
+    return makeLabel(node.label, COLORS[node.group], scale, yOffset);
+  })
+  .nodeThreeObjectExtend(true)   // keep sphere AND add label
+
+  // Links
+  .linkColor(link => {
+    const sid = link.source?.id ?? link.source;
+    const s   = graphData.nodes.find(n => n.id === sid);
+    return (COLORS[s?.group] ?? '#8888cc') + 'bb';
+  })
+  .linkWidth(1.5)
+  .linkOpacity(0.55)
+  .linkDirectionalParticles(4)
+  .linkDirectionalParticleWidth(1.1)
+  .linkDirectionalParticleSpeed(0.006)
+  .linkDirectionalParticleColor(link => {
+    const tid = link.target?.id ?? link.target;
+    const t   = graphData.nodes.find(n => n.id === tid);
+    return COLORS[t?.group] ?? '#aaaaff';
+  })
+
+  .cameraPosition({ z: 540 });
+
+// ── Quick framing buttons for live presentation ───────────────────
+function focusNode(id) {
+  const node = graphData.nodes.find(n => n.id === id);
+  if (!node) return;
+  const distance = id === 'Michelle' ? 135 : 165;
+  const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+  graph.cameraPosition(
+    { x: (node.x || 0) * distRatio, y: (node.y || 0) * distRatio, z: (node.z || 0) * distRatio },
+    node,
+    1400
+  );
+}
+function resetCamera() {
+  graph.cameraPosition({ x: 0, y: 0, z: 540 }, { x: 0, y: 0, z: 0 }, 1400);
+}
+</script>
+</body>
+</html>
