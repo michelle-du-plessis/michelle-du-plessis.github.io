@@ -5,14 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DLI Working Group — Reflection Map</title>
   <style>
-    html, body, #3d-graph {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      outline: 0;
       background: #000011;
       overflow: hidden;
       font-family: sans-serif;
+    }
+    body, #3d-graph {
+      position: fixed;
+      inset: 0;
+    }
+    #3d-graph {
+      width: 100vw;
+      height: 100vh;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      overflow: hidden;
+    }
+    #3d-graph canvas {
+      display: block;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      vertical-align: top;
     }
     #title {
       position: absolute;
@@ -394,6 +418,32 @@ const graph = ForceGraph3D()(document.getElementById('3d-graph'))
   })
 
   .cameraPosition({ z: 540 });
+
+function viewportSize() {
+  const viewport = window.visualViewport;
+  return {
+    width: Math.round(viewport?.width || window.innerWidth),
+    height: Math.round(viewport?.height || window.innerHeight)
+  };
+}
+
+function resizeGraph() {
+  const { width, height } = viewportSize();
+  graph.width(width).height(height);
+}
+
+let resizeFrame = null;
+function scheduleResize() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = null;
+    resizeGraph();
+  });
+}
+
+resizeGraph();
+window.addEventListener('resize', scheduleResize);
+window.visualViewport?.addEventListener('resize', scheduleResize);
 
 // ── Quick framing buttons for live presentation ───────────────────
 function focusNode(id) {
